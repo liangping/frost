@@ -7,7 +7,7 @@
 
 extern crate alloc;
 
-use std::collections::BTreeMap;
+use alloc::collections::BTreeMap;
 
 use ed448_goldilocks::{
     curve::{edwards::CompressedEdwardsY, ExtendedPoint},
@@ -150,7 +150,7 @@ fn hash_to_scalar(inputs: &[&[u8]]) -> Scalar {
 
 /// Context string from the ciphersuite in the [spec]
 ///
-/// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.3-1
+/// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.3-1
 const CONTEXT_STRING: &str = "FROST-ED448-SHAKE256-v1";
 
 /// An implementation of the FROST(Ed448, SHAKE256) ciphersuite.
@@ -168,35 +168,35 @@ impl Ciphersuite for Ed448Shake256 {
 
     /// H1 for FROST(Ed448, SHAKE256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.3-2.2.2.1
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.3-2.4.2.2
     fn H1(m: &[u8]) -> <<Self::Group as Group>::Field as Field>::Scalar {
         hash_to_scalar(&[CONTEXT_STRING.as_bytes(), b"rho", m])
     }
 
     /// H2 for FROST(Ed448, SHAKE256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.3-2.2.2.2
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.3-2.4.2.4
     fn H2(m: &[u8]) -> <<Self::Group as Group>::Field as Field>::Scalar {
         hash_to_scalar(&[b"SigEd448\0\0", m])
     }
 
     /// H3 for FROST(Ed448, SHAKE256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.3-2.2.2.3
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.3-2.4.2.6
     fn H3(m: &[u8]) -> <<Self::Group as Group>::Field as Field>::Scalar {
         hash_to_scalar(&[CONTEXT_STRING.as_bytes(), b"nonce", m])
     }
 
     /// H4 for FROST(Ed448, SHAKE256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.3-2.2.2.4
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.3-2.4.2.8
     fn H4(m: &[u8]) -> Self::HashOutput {
         hash_to_array(&[CONTEXT_STRING.as_bytes(), b"msg", m])
     }
 
     /// H5 for FROST(Ed448, SHAKE256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.3-2.2.2.5
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.3-2.4.2.10
     fn H5(m: &[u8]) -> Self::HashOutput {
         hash_to_array(&[CONTEXT_STRING.as_bytes(), b"com", m])
     }
@@ -230,7 +230,6 @@ pub type Identifier = frost::Identifier<E>;
 /// FROST(Ed448, SHAKE256) keys, key generation, key shares.
 pub mod keys {
     use super::*;
-    use std::collections::BTreeMap;
 
     /// The identifier list to use when generating key shares.
     pub type IdentifierList<'a> = frost::keys::IdentifierList<'a, E>;
@@ -321,6 +320,7 @@ pub mod keys {
     pub type VerifiableSecretSharingCommitment = frost::keys::VerifiableSecretSharingCommitment<E>;
 
     pub mod dkg;
+    pub mod refresh;
     pub mod repairable;
 }
 

@@ -56,9 +56,13 @@ insecure.**
 Upon receiving the other participants' `round1::Package`s, each participant then
 calls
 [`dkg::part2()`](https://docs.rs/frost-ristretto255/latest/frost_ristretto255/keys/dkg/fn.part2.html)
-passing their own previously created `round1::SecretPackage` and the list of
-received `round1::Packages`. It returns a `round2::SecretPackage` and a
-`BTreeMap` mapping other participants's `Identifier`s to `round2::Package`s:
+passing their own previously created `round1::SecretPackage` and a map of the
+received `round1::Packages`, keyed by the Identifiers of the participant that
+sent each one of them. (These identifiers must come from whatever mapping the
+coordinator has between communication channels and participants, i.e. they must
+have assurance that the `round1::Package` came from the participant with that
+identifier.) It returns a `round2::SecretPackage` and a `BTreeMap` mapping other
+participants's `Identifier`s to `round2::Package`s:
 
 ```rust,no_run,noplayground
 {{#include ../../../frost-ristretto255/dkg.md:dkg_part2}}
@@ -71,15 +75,22 @@ The `round2::Package`s must be sent to their respective participants with the
 given `Identifier`s, using an [authenticated and confidential communication
 channel](https://frost.zfnd.org/terminology.html#peer-to-peer-channel).
 
+```admonish danger
+The `round2::Package`s MUST be encrypted, otherwise an attacker who can read
+the content of the packages will be able to recreate the secret being
+generated.
+```
+
 ## Part 3
 
 Finally, upon receiving the other participant's `round2::Package`, the DKG is
 concluded by calling
 [`dkg::part3()`](https://docs.rs/frost-ristretto255/latest/frost_ristretto255/keys/dkg/fn.part3.html)
 passing the same `round1::Package`s received in Part 2, the `round2::Package`s
-just received, and the previously stored `round2::SecretPackage` for the
-participant. It returns a `KeyPackage`, with the participant's secret share,
-and a `PublicKeyPackage` containing the group verifying key:
+just received (again keyed by the Identifier of the participant that sent each
+one of them), and the previously stored `round2::SecretPackage` for the
+participant. It returns a `KeyPackage`, with the participant's secret share, and
+a `PublicKeyPackage` containing the group verifying key:
 
 ```rust,no_run,noplayground
 {{#include ../../../frost-ristretto255/dkg.md:dkg_part3}}

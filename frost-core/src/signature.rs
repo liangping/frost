@@ -1,11 +1,12 @@
 //! Schnorr signatures over prime order groups (or subgroups)
 
 use alloc::{string::ToString, vec::Vec};
+use derive_getters::Getters;
 
 use crate::{Ciphersuite, Element, Error, Field, Group, Scalar};
 
 /// A Schnorr signature over some prime order group (or subgroup).
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Getters)]
 pub struct Signature<C: Ciphersuite> {
     /// The commitment `R` to the signature nonce.
     pub(crate) R: Element<C>,
@@ -29,8 +30,10 @@ where
         Self { R, z }
     }
 
-    /// Converts bytes as [`Ciphersuite::SignatureSerialization`] into a `Signature<C>`.
-    pub fn deserialize(bytes: &[u8]) -> Result<Self, Error<C>> {
+    /// Converts default-encoded bytes as
+    /// [`Ciphersuite::SignatureSerialization`] into a `Signature<C>`.
+    #[cfg_attr(feature = "internals", visibility::make(pub))]
+    pub(crate) fn default_deserialize(bytes: &[u8]) -> Result<Self, Error<C>> {
         // To compute the expected length of the encoded point, encode the generator
         // and get its length. Note that we can't use the identity because it can be encoded
         // shorter in some cases (e.g. P-256, which uses SEC1 encoding).
@@ -66,8 +69,14 @@ where
         })
     }
 
-    /// Converts this signature to its byte serialization.
-    pub fn serialize(&self) -> Result<Vec<u8>, Error<C>> {
+    /// Converts bytes as [`Ciphersuite::SignatureSerialization`] into a `Signature<C>`.
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, Error<C>> {
+        C::deserialize_signature(bytes)
+    }
+
+    /// Converts this signature to its default byte serialization.
+    #[cfg_attr(feature = "internals", visibility::make(pub))]
+    pub(crate) fn default_serialize(&self) -> Result<Vec<u8>, Error<C>> {
         let mut bytes = Vec::<u8>::new();
 
         bytes.extend(<C::Group>::serialize(&self.R)?.as_ref());
@@ -76,15 +85,9 @@ where
         Ok(bytes)
     }
 
-    /// Converts this signature to its byte serialization for taproot.
-    pub fn serialize_taproot(&self) -> Result<Vec<u8>, Error<C>> {
-        let R_bytes = <C::Group>::serialize(&self.R)?;
-        let z_bytes = <<C::Group as Group>::Field>::serialize(&self.z);
-
-        let mut bytes = [0u8; 64];
-        bytes[..32].copy_from_slice(&R_bytes.as_ref()[1..]);
-        bytes[32..].copy_from_slice(&z_bytes.as_ref());
-        Ok(bytes.to_vec())
+    /// Converts this signature to its byte serialization.
+    pub fn serialize(&self) -> Result<Vec<u8>, Error<C>> {
+        <C>::serialize_signature(self)
     }
 }
 

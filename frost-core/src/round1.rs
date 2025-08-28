@@ -43,7 +43,7 @@ where
     ///
     /// An implementation of `nonce_generate(secret)` from the [spec].
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#name-nonce-generation
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#name-nonce-generation
     pub fn new<R>(secret: &SigningShare<C>, rng: &mut R) -> Self
     where
         R: CryptoRng + RngCore,
@@ -54,10 +54,16 @@ where
         Self::nonce_generate_from_random_bytes(secret, random_bytes)
     }
 
+    /// Create a nonce from a scalar.
+    #[cfg_attr(feature = "internals", visibility::make(pub))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "internals")))]
     fn from_scalar(scalar: <<<C as Ciphersuite>::Group as Group>::Field as Field>::Scalar) -> Self {
         Self(SerializableScalar(scalar))
     }
 
+    /// Convert a nonce into a scalar.
+    #[cfg_attr(feature = "internals", visibility::make(pub))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "internals")))]
     pub(crate) fn to_scalar(
         self,
     ) -> <<<C as Ciphersuite>::Group as Group>::Field as Field>::Scalar {
@@ -314,10 +320,9 @@ where
         }
     }
 
-    /// Computes the [signature commitment share] from these round one signing commitments.
+    /// Computes the [commitment share] from these round one signing commitments.
     ///
-    /// [signature commitment share]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#name-signature-share-verificatio
-    #[cfg(any(feature = "internals", feature = "cheater-detection"))]
+    /// [commitment share]: https://datatracker.ietf.org/doc/html/rfc9591#name-signature-share-aggregation
     #[cfg_attr(feature = "internals", visibility::make(pub))]
     #[cfg_attr(docsrs, doc(cfg(feature = "internals")))]
     pub(super) fn to_group_commitment_share(
@@ -358,6 +363,21 @@ where
 #[derive(Clone, Copy, PartialEq)]
 pub struct GroupCommitmentShare<C: Ciphersuite>(pub(super) Element<C>);
 
+impl<C: Ciphersuite> GroupCommitmentShare<C> {
+    /// Create from an element.
+    #[cfg_attr(feature = "internals", visibility::make(pub))]
+    #[allow(unused)]
+    pub(crate) fn from_element(element: Element<C>) -> Self {
+        Self(element)
+    }
+
+    /// Return the underlying element.
+    #[cfg_attr(feature = "internals", visibility::make(pub))]
+    pub(crate) fn to_element(self) -> Element<C> {
+        self.0
+    }
+}
+
 /// Encode the list of group signing commitments.
 ///
 /// Implements [`encode_group_commitment_list()`] from the spec.
@@ -368,7 +388,7 @@ pub struct GroupCommitmentShare<C: Ciphersuite>(pub(super) Element<C>);
 /// Returns a byte string containing the serialized representation of the
 /// commitment list.
 ///
-/// [`encode_group_commitment_list()`]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#name-list-operations
+/// [`encode_group_commitment_list()`]: https://datatracker.ietf.org/doc/html/rfc9591#name-list-operations
 pub(super) fn encode_group_commitments<C: Ciphersuite>(
     signing_commitments: &BTreeMap<Identifier<C>, SigningCommitments<C>>,
 ) -> Result<Vec<u8>, Error<C>> {
@@ -422,7 +442,7 @@ where
 /// Generates the signing nonces and commitments to be used in the signing
 /// operation.
 ///
-/// [`commit`]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#name-round-one-commitment
+/// [`commit`]: https://datatracker.ietf.org/doc/html/rfc9591#name-round-one-commitment
 pub fn commit<C, R>(
     secret: &SigningShare<C>,
     rng: &mut R,

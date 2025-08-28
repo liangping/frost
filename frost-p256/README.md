@@ -11,10 +11,9 @@ scenario in a single thread and it abstracts away any communication between peer
 ```rust
 # // ANCHOR: tkg_gen
 use frost_p256 as frost;
-use rand::thread_rng;
 use std::collections::BTreeMap;
 
-let mut rng = thread_rng();
+let mut rng = rand::rngs::OsRng;
 let max_signers = 5;
 let min_signers = 3;
 let (shares, pubkey_package) = frost::keys::generate_with_dealer(
@@ -45,14 +44,14 @@ let mut commitments_map = BTreeMap::new();
 ////////////////////////////////////////////////////////////////////////////
 
 // In practice, each iteration of this loop will be executed by its respective participant.
-for participant_index in 1..(min_signers as u16 + 1) {
+for participant_index in 1..=min_signers {
     let participant_identifier = participant_index.try_into().expect("should be nonzero");
     let key_package = &key_packages[&participant_identifier];
     // Generate one (1) nonce and one SigningCommitments instance for each
     // participant, up to _threshold_.
     # // ANCHOR: round1_commit
     let (nonces, commitments) = frost::round1::commit(
-        key_packages[&participant_identifier].signing_share(),
+        key_package.signing_share(),
         &mut rng,
     );
     # // ANCHOR_END: round1_commit

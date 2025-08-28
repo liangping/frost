@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 #![allow(non_snake_case)]
 #![deny(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
@@ -8,7 +8,6 @@
 
 extern crate alloc;
 
-use alloc::borrow::ToOwned;
 use alloc::collections::BTreeMap;
 
 use frost_rerandomized::RandomizedCiphersuite;
@@ -159,16 +158,16 @@ fn hash_to_array(inputs: &[&[u8]]) -> [u8; 32] {
     output
 }
 
-fn hash_to_scalar(domain: &[u8], msg: &[u8]) -> Scalar {
+fn hash_to_scalar(domain: &[&[u8]], msg: &[u8]) -> Scalar {
     let mut u = [P256ScalarField::zero()];
-    hash_to_field::<ExpandMsgXmd<Sha256>, Scalar>(&[msg], &[domain], &mut u)
+    hash_to_field::<ExpandMsgXmd<Sha256>, Scalar>(&[msg], domain, &mut u)
         .expect("should never return error according to error cases described in ExpandMsgXmd");
     u[0]
 }
 
 /// Context string from the ciphersuite in the [spec]
 ///
-/// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.4-1
+/// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.4-1
 const CONTEXT_STRING: &str = "FROST-P256-SHA256-v1";
 
 /// An implementation of the FROST(P-256, SHA-256) ciphersuite.
@@ -186,60 +185,54 @@ impl Ciphersuite for P256Sha256 {
 
     /// H1 for FROST(P-256, SHA-256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.4-2.2.2.1
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.4-2.4.2.2
     fn H1(m: &[u8]) -> <<Self::Group as Group>::Field as Field>::Scalar {
-        hash_to_scalar((CONTEXT_STRING.to_owned() + "rho").as_bytes(), m)
+        hash_to_scalar(&[CONTEXT_STRING.as_bytes(), b"rho"], m)
     }
 
     /// H2 for FROST(P-256, SHA-256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.4-2.2.2.2
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.4-2.4.2.4
     fn H2(m: &[u8]) -> <<Self::Group as Group>::Field as Field>::Scalar {
-        hash_to_scalar((CONTEXT_STRING.to_owned() + "chal").as_bytes(), m)
+        hash_to_scalar(&[CONTEXT_STRING.as_bytes(), b"chal"], m)
     }
 
     /// H3 for FROST(P-256, SHA-256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.4-2.2.2.3
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.4-2.4.2.6
     fn H3(m: &[u8]) -> <<Self::Group as Group>::Field as Field>::Scalar {
-        hash_to_scalar((CONTEXT_STRING.to_owned() + "nonce").as_bytes(), m)
+        hash_to_scalar(&[CONTEXT_STRING.as_bytes(), b"nonce"], m)
     }
 
     /// H4 for FROST(P-256, SHA-256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.4-2.2.2.4
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.4-2.4.2.8
     fn H4(m: &[u8]) -> Self::HashOutput {
         hash_to_array(&[CONTEXT_STRING.as_bytes(), b"msg", m])
     }
 
     /// H5 for FROST(P-256, SHA-256)
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.4-2.2.2.5
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#section-6.4-2.4.2.10
     fn H5(m: &[u8]) -> Self::HashOutput {
         hash_to_array(&[CONTEXT_STRING.as_bytes(), b"com", m])
     }
 
     /// HDKG for FROST(P-256, SHA-256)
     fn HDKG(m: &[u8]) -> Option<<<Self::Group as Group>::Field as Field>::Scalar> {
-        Some(hash_to_scalar(
-            (CONTEXT_STRING.to_owned() + "dkg").as_bytes(),
-            m,
-        ))
+        Some(hash_to_scalar(&[CONTEXT_STRING.as_bytes(), b"dkg"], m))
     }
 
     /// HID for FROST(P-256, SHA-256)
     fn HID(m: &[u8]) -> Option<<<Self::Group as Group>::Field as Field>::Scalar> {
-        Some(hash_to_scalar(
-            (CONTEXT_STRING.to_owned() + "id").as_bytes(),
-            m,
-        ))
+        Some(hash_to_scalar(&[CONTEXT_STRING.as_bytes(), b"id"], m))
     }
 }
 
 impl RandomizedCiphersuite for P256Sha256 {
     fn hash_randomizer(m: &[u8]) -> Option<<<Self::Group as Group>::Field as Field>::Scalar> {
         Some(hash_to_scalar(
-            (CONTEXT_STRING.to_owned() + "randomizer").as_bytes(),
+            &[CONTEXT_STRING.as_bytes(), b"randomizer"],
             m,
         ))
     }
@@ -343,6 +336,7 @@ pub mod keys {
     pub type VerifiableSecretSharingCommitment = frost::keys::VerifiableSecretSharingCommitment<P>;
 
     pub mod dkg;
+    pub mod refresh;
     pub mod repairable;
 }
 

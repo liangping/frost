@@ -29,6 +29,7 @@ use crate::serialization::{Deserialize, Serialize};
 use super::compute_lagrange_coefficient;
 
 pub mod dkg;
+pub mod refresh;
 pub mod repairable;
 
 /// Sum the commitments from all participants in a distributed key generation
@@ -318,7 +319,7 @@ where
         Self(coefficients)
     }
 
-    /// Returns serialized coefficent commitments
+    /// Returns serialized coefficient commitments
     pub fn serialize(&self) -> Result<Vec<Vec<u8>>, Error<C>> {
         self.0
             .iter()
@@ -326,8 +327,13 @@ where
             .collect::<Result<_, Error<C>>>()
     }
 
-    /// Returns VerifiableSecretSharingCommitment from a iterator of serialized
-    /// CoefficientCommitments (e.g. a Vec<Vec<u8>>).
+    /// Serialize the whole commitment vector as a single byte vector.
+    pub fn serialize_whole(&self) -> Result<Vec<u8>, Error<C>> {
+        self.serialize().map(|v| v.concat())
+    }
+
+    /// Returns VerifiableSecretSharingCommitment from an iterator of serialized
+    /// CoefficientCommitments (e.g. a [`Vec<Vec<u8>>`]).
     pub fn deserialize<I, V>(serialized_coefficient_commitments: I) -> Result<Self, Error<C>>
     where
         I: IntoIterator<Item = V>,
@@ -339,6 +345,25 @@ where
         }
 
         Ok(Self::new(coefficient_commitments))
+    }
+
+    /// Deserialize a whole commitment vector from a single byte vector as returned by
+    /// [`VerifiableSecretSharingCommitment::serialize_whole()`].
+    pub fn deserialize_whole(bytes: &[u8]) -> Result<Self, Error<C>> {
+        // Get size from the size of the generator
+        let generator = <C::Group>::generator();
+        let len = <C::Group>::serialize(&generator)
+            .expect("serializing the generator always works")
+            .as_ref()
+            .len();
+
+        let serialized_coefficient_commitments = bytes.chunks_exact(len);
+
+        if !serialized_coefficient_commitments.remainder().is_empty() {
+            return Err(Error::InvalidCoefficient);
+        }
+
+        Self::deserialize(serialized_coefficient_commitments)
     }
 
     /// Get the VerifyingKey matching this commitment vector (which is the first
@@ -416,13 +441,24 @@ where
     /// This also implements `derive_group_info()` from the [spec] (which is very similar),
     /// but only for this participant.
     ///
-    /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#appendix-C.2-4
+    /// [spec]: https://datatracker.ietf.org/doc/html/rfc9591#appendix-C.2-3
     pub fn verify(&self) -> Result<(VerifyingShare<C>, VerifyingKey<C>), Error<C>> {
         let f_result = <C::Group>::generator() * self.signing_share.to_scalar();
         let result = evaluate_vss(self.identifier, &self.commitment);
 
         if !(f_result == result) {
-            return Err(Error::InvalidSecretShare);
+            // The culprit needs to be identified by the caller if needed,
+            // because this function is called in two different contexts:
+            // - after trusted dealer key generation, by the participant who
+            //   receives the SecretShare. In that case it does not make sense
+            //   to identify themselves as the culprit, since the issue was with
+            //   the Coordinator or in the communication.
+            // - during DKG, where a "fake" SecretShare is built just to reuse
+            //   the verification logic and it does make sense to identify the
+            //   culprit. Note that in this case, self.identifier is the caller's
+            //   identifier and not the culprit's, so we couldn't identify
+            //   the culprit inside this function anyway.
+            return Err(Error::InvalidSecretShare { culprit: None });
         }
 
         Ok((
@@ -466,18 +502,14 @@ pub enum IdentifierList<'a, C: Ciphersuite> {
 ///
 /// Implements [`trusted_dealer_keygen`] from the spec.
 ///
-/// [`trusted_dealer_keygen`]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#appendix-C
+/// [`trusted_dealer_keygen`]: https://datatracker.ietf.org/doc/html/rfc9591#appendix-C
 pub fn generate_with_dealer<C: Ciphersuite, R: RngCore + CryptoRng>(
     max_signers: u16,
     min_signers: u16,
     identifiers: IdentifierList<C>,
     rng: &mut R,
 ) -> Result<(BTreeMap<Identifier<C>, SecretShare<C>>, PublicKeyPackage<C>), Error<C>> {
-    let mut bytes = [0; 64];
-    rng.fill_bytes(&mut bytes);
-
     let key = SigningKey::new(rng);
-
     split(&key, max_signers, min_signers, identifiers, rng)
 }
 
@@ -516,7 +548,6 @@ pub fn split<C: Ciphersuite, R: RngCore + CryptoRng>(
         }
     };
     let mut verifying_shares: BTreeMap<Identifier<C>, VerifyingShare<C>> = BTreeMap::new();
-
     let mut secret_shares_by_id: BTreeMap<Identifier<C>, SecretShare<C>> = BTreeMap::new();
 
     for secret_share in secret_shares {
@@ -526,14 +557,17 @@ pub fn split<C: Ciphersuite, R: RngCore + CryptoRng>(
         secret_shares_by_id.insert(secret_share.identifier, secret_share);
     }
 
-    Ok((
-        secret_shares_by_id,
-        PublicKeyPackage {
-            header: Header::default(),
-            verifying_shares,
-            verifying_key,
-        },
-    ))
+    let public_key_package = PublicKeyPackage {
+        header: Header::default(),
+        verifying_shares,
+        verifying_key,
+    };
+
+    // Apply post-processing
+    let (processed_secret_shares, processed_public_key_package) =
+        C::post_generate(secret_shares_by_id, public_key_package)?;
+
+    Ok((processed_secret_shares, processed_public_key_package))
 }
 
 /// Evaluate the polynomial with the given coefficients (constant term first)
@@ -541,7 +575,7 @@ pub fn split<C: Ciphersuite, R: RngCore + CryptoRng>(
 ///
 /// Implements [`polynomial_evaluate`] from the spec.
 ///
-/// [`polynomial_evaluate`]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#name-evaluation-of-a-polynomial
+/// [`polynomial_evaluate`]: https://datatracker.ietf.org/doc/html/rfc9591#name-additional-polynomial-opera
 fn evaluate_polynomial<C: Ciphersuite>(
     identifier: Identifier<C>,
     coefficients: &[Scalar<C>],
@@ -759,6 +793,8 @@ where
     }
 }
 
+/// Validates the number of signers.
+#[cfg_attr(feature = "internals", visibility::make(pub))]
 fn validate_num_of_signers<C: Ciphersuite>(
     min_signers: u16,
     max_signers: u16,
@@ -830,7 +866,7 @@ pub(crate) fn generate_secret_polynomial<C: Ciphersuite>(
 ///
 /// Implements [`secret_share_shard`] from the spec.
 ///
-/// [`secret_share_shard`]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#appendix-C.1
+/// [`secret_share_shard`]: https://datatracker.ietf.org/doc/html/rfc9591#name-shamir-secret-sharing
 pub(crate) fn generate_secret_shares<C: Ciphersuite>(
     secret: &SigningKey<C>,
     max_signers: u16,

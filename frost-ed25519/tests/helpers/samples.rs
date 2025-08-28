@@ -107,21 +107,55 @@ pub fn public_key_package() -> PublicKeyPackage {
     PublicKeyPackage::new(verifying_shares, verifying_key)
 }
 
+/// Generate a sample round1::SecretPackage.
+pub fn round1_secret_package() -> round1::SecretPackage {
+    let identifier = 42u16.try_into().unwrap();
+    let coefficients = vec![scalar1(), scalar1()];
+    let min_signers = 2;
+    let max_signers = 3;
+
+    let serialized_element = <C as Ciphersuite>::Group::serialize(&element1()).unwrap();
+    let commitment =
+        VerifiableSecretSharingCommitment::deserialize(vec![serialized_element]).unwrap();
+
+    round1::SecretPackage::new(
+        identifier,
+        coefficients,
+        commitment,
+        min_signers,
+        max_signers,
+    )
+}
+
 /// Generate a sample round1::Package.
 pub fn round1_package() -> round1::Package {
-    let serialized_scalar = <<C as Ciphersuite>::Group as Group>::Field::serialize(&scalar1());
-    let serialized_element = <C as Ciphersuite>::Group::serialize(&element1()).unwrap();
-    let serialized_signature = serialized_element
-        .as_ref()
-        .iter()
-        .chain(serialized_scalar.as_ref().iter())
-        .cloned()
-        .collect::<Vec<u8>>();
-    let vss_commitment =
-        VerifiableSecretSharingCommitment::deserialize(vec![serialized_element]).unwrap();
+    let serialized_signature = Signature::new(element1(), scalar1()).serialize().unwrap();
     let signature = Signature::deserialize(&serialized_signature).unwrap();
 
+    let serialized_element = <C as Ciphersuite>::Group::serialize(&element1()).unwrap();
+    let vss_commitment =
+        VerifiableSecretSharingCommitment::deserialize(vec![serialized_element]).unwrap();
+
     round1::Package::new(vss_commitment, signature)
+}
+
+/// Generate a sample round1::SecretPackage.
+pub fn round2_secret_package() -> round2::SecretPackage {
+    let identifier = 42u16.try_into().unwrap();
+    let serialized_element = <C as Ciphersuite>::Group::serialize(&element1()).unwrap();
+    let commitment =
+        VerifiableSecretSharingCommitment::deserialize(vec![serialized_element]).unwrap();
+    let secret_share = scalar1();
+    let min_signers = 2;
+    let max_signers = 3;
+
+    round2::SecretPackage::new(
+        identifier,
+        commitment,
+        secret_share,
+        min_signers,
+        max_signers,
+    )
 }
 
 /// Generate a sample round2::Package.

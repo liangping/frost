@@ -1,15 +1,17 @@
 # Ywallet Demo Tutorial
 
 This tutorial explaining how to run the FROST demo using Ywallet that was
-[presented during Zcon4](https://www.youtube.com/watch?v=xvzESdDtczo).
+[presented during Zcon4](https://www.youtube.com/watch?v=xvzESdDtczo) (though it
+has been updated and it differs from what was presented).
 
 Ywallet supports [offline
 signing](https://ywallet.app/advanced/offline_signature/), which allows having a
 view-only account that can generate a transaction plan, which can be signed by
-a offline wallet also running Ywallet. The demo uses this mechanism but signs
+an offline wallet also running Ywallet. The demo uses this mechanism but signs
 the transaction plan with a command line tool, using FROST.
 
 This tutorial assumes familiarity with the command line.
+
 
 ## Setting up
 
@@ -17,98 +19,183 @@ Install `cargo` and `git`.
 
 [Install Ywallet](https://ywallet.app/installation/).
 
-Clone the repositories:
+Install the `frost-client` tool:
 
 ```
-git clone https://github.com/ZcashFoundation/frost-zcash-demo.git
-git clone --recurse-submodules --branch frost-demo https://github.com/ZcashFoundation/zwallet.git
-git clone https://github.com/ZcashFoundation/zcash.git
+cargo install --git https://github.com/ZcashFoundation/frost-zcash-demo.git --locked frost-client
 ```
 
-Download Sprout and Sapling parameters:
+Install the `zcash-sign` tool:
+
+```
+cargo install --git https://github.com/ZcashFoundation/frost-zcash-demo.git --locked zcash-sign
+```
+
+Switch to an empty folder which will store the files generated in the demo.
+For example:
+
+```
+mkdir frost-demo
+cd frost-demo/
+```
 
 
-[Sprout params](https://download.z.cash/downloads/sprout-groth16.params)
+### Running the server
 
-[Sapling spend params](https://download.z.cash/downloads/sapling-spend.params)
+This demo uses the ZF FROST server (frostd) to help participants communicate.
+While in practice users would use an existing online server, for the demo you
+can run a local server by following [these instructions](./server.md) (the
+"Compiling, Running and Deploying" and "Local Testing" sections).
 
-[Sapling output params](https://download.z.cash/downloads/sapling-output.params)
+The rest of the tutorial assumes the server is up and running.
 
-Move the params files into `zwallet/native/zcash-params/src/`
+
+### Initializing the users
+
+Run the following command to initialize three users (in practice, each user
+would run a similar command, but for demo purposes we're assuming
+you will simulate all of them in the same machine, so run these
+commands in your machine):
+
+```
+frost-client init -c alice.toml
+frost-client init -c bob.toml
+frost-client init -c eve.toml
+```
+
+This will create a config file for three users; Alice, Bob and Eve.
+
+```admonish note
+If you really want to run the demo in separate machines, then you can omit the
+`-c alice.toml` part of the command (i.e. run `frost-client init`); it will
+save to a default location in the user's home directory.
+```
 
 
 ## Generating FROST key shares
 
 First we will generate the FROST key shares. For simplicity we'll use trusted
-dealer, DKG will be described later.
+dealer; if you want to use Distributed Key Generation, skip to the next section.
 
-Run the following (it will take a bit to compile):
+In a new terminal (in case the previous terminal is running the server), run the
+following:
 
 ```
-cd frost-zcash-demo/
-cargo run --bin trusted-dealer --features redpallas
+frost-client trusted-dealer -d "Alice, Bob and Eve's group" --names Alice,Bob,Eve -c alice.toml -c bob.toml -c eve.toml -C redpallas
 ```
 
-This will by default generate a 2-of-3 key shares. The public key package
-will be written to `public-key-package.json`, while key packages will be
-written to `key-package-1.json` through `-3`. You can change the threhsold,
-number of shares and file names using the command line; append `-- -h`
-to the commend above for the command line help.
+This will by default generate a 2-of-3 key shares. The key shares will be
+written into each participant's config file.  You can change the threhsold,
+number of shares and file names using the command line; append `-h` to the
+commend above for the command line help.
 
-```admonish info
-If you want to use DKG instead of Trusted Dealer, instead of the command above,
- run this for each participant, in separate terminals for each:
 
-`cargo run --bin dkg --features redpallas`
+## Generating FROST key shares using DKG
 
-and follow the instructions. (There will be a considerable amount of
-copy&pasting!)
+For real-word usage we commend generating key shares using Distributed Key
+Generation. If you did the previous section, skip to "Generating the Full
+Viewing Key for the wallet".
+
+
+```admonish note
+This section assumes each participant is running the commands in their own
+machine. If you want to simulate all of them in a single machine,
+specify the config file for the user (e.g. `-c alice.toml`) accordingly.
 ```
+
+
+### Initializing config files
+
+If they haven't yet, each participant should run:
+
+```
+frost-client init
+```
+
+
+### Sharing contacts
+
+Each participant must now generate a contact string that they will need to share
+with the other participants. This contact string will include a name, which they
+can choose when exporting and will be shown to whoever they send the contact to.
+
+Run the following, substituting the name accordingly:
+
+```
+frost-client export --name 'Alice'
+```
+
+The command will print an encoded contact string such as
+`zffrost1qyqq2stvd93k2g84hudcr98zp67a9rnx9v00euw9e5424hjathvre7ymy344fynjdvxmwxfg`.
+Send it to the other participants using some trusted communication channel
+(instant messaging, etc.).
+
+The other participants will send you their contacts. Import them by running the
+following command for each contact (replace `<contact-string>` with the contact
+string accordingly):
+
+```
+frost-client import <contact-string>
+```
+
+
+### Generating shares
+
+Finally, to generate the shares, one of the participants will need to initiate
+the process. They will need to public key of each participant, so they need to
+first list them with the following command:
+
+```
+frost-client contacts
+```
+
+Then run the following command, replacing the `<pubkey1>` and `<pubkey2>` hex
+strings with the public keys of the contacts which will participate (along with
+the user running the command):
+
+```
+frost-client dkg -d "Alice, Bob and Eve's group" -s localhost:2744 -S <pubkey1>,<pubkey2> -t 2 -C redpallas -c alice.toml
+```
+
+The user should then notify the others that a signing session has started (e.g.
+via instant messaging again), and also share the threshold number that was used.
+They should then run the following, replacing the name of the group if they wish
+and the threshold number with the one given by the first participant.
+
+```
+frost-client dkg -d "Alice, Bob and Eve's group" -s localhost:2744 -t 2 -C redpallas
+```
+
+```admonish note
+A future version might not require specifying the threshold and group name.
+```
+
 
 ## Generating the Full Viewing Key for the wallet
 
-In a new terminal, switch to the folder of the signer tool:
+Next, we will need to generate a Zcash Full Viewing Key from the FROST group
+material we have just generated; this address will then be imported into a wallet
+so that we'll be able to create Zcash transactions for it.
 
-
-```
-cd zwallet/native/zcash-sync/
-```
-
-Before running it, you will need to create a seed phrase which is used to
-generate the Sapling address. This wouldn't be needed since the demo only works
-with an Orchard address, but due to current limitations in the underlying
-crates, we also need to generate a Sapling address which won't be used in the
-demo. Generate a fresh 24-word seed phrase, for example using [this
-site](https://iancoleman.io/bip39/) (reminder: don't use random sites to
-generate seed phrases unless for testing purposes!), then write to a file called
-`.env` in the signer folder in the following format, putting the seed phrase
-inside the quotes:
-
- ```
- KEY="seed phrase"
- ```
-
-We can finally generate a new wallet. Run the following command; it will
-take a bit to compile. It will show a bunch of warnings which is normal.
+Run the following command:
 
 ```
-cargo run --release --bin sign --features dotenv -- -g
+frost-client groups
 ```
 
-When prompted for the `ak`, paste the `verifying_key` value that is listed
-inside the Public Key Package in `public-key-package.json`. For example, in the
-following package
+It will list all groups you're in - at this point it should list the only one
+you have just created. Copy the Public Key it shows (it will look like e.g.
+`79d6bcee79c88ad9ba259067772b97f5de12f1435b474d03bc98f255be08a610`)
+
+The run the following command, replacing `<ak>` with the value you copied.
 
 ```
-{"verifying_shares": ...snip... ,"verifying_key":"d2bf40ca860fb97e9d6d15d7d25e4f17d2e8ba5dd7069188cbf30b023910a71b","ciphersuite":"FROST(Pallas, BLAKE2b-512)"}
+zcash-sign generate --ak <ak> --danger-dummy-sapling
 ```
-
-you would need to use
-`d2bf40ca860fb97e9d6d15d7d25e4f17d2e8ba5dd7069188cbf30b023910a71b`. Press
-enter to submit.
 
 It will print an Orchard address, and a Unified Full Viewing Key. Copy and
 paste both somewhere to use them later.
+
 
 ## Importing the Full Viewing Key into Ywallet
 
@@ -116,112 +203,127 @@ Open Ywallet and click "New account". Check "Restore an account" and
 paste the Unified Full Viewing Key created in the previous step. Click
 "Import".
 
-In the "Rescan from..." window, pick today's date (since the wallet was just
-created) and press OK. The wallet should open.
-
-You will need to change some of Ywallet configurations. Click the three dots
-at the top right and go to Settings. Switch to Advanced mode and click
-OK. Go back to the Settings and uncheck "Use QR for offline signing".
 
 ## Funding the wallet
 
 Now you will need to fund this wallet with some ZEC. Use the Orchard address
 printed by the signer (see warning below). Send ZEC to that address using
-another account (or try [ZecFaucet](https://zecfaucet.com/)). Wait until the
-funds become spendable (this may take ~10 minutes). You can check if the funds
-are spendable by clicking the arrow button and checking "Spendable Balance"
+another account (or try [ZecFaucet](https://zecfaucet.com/)).
 
-```admonish warning
-The address being show by Ywallet is a unified address that includes both an Orchard and Sapling address. For the demo to work, you need to receive funds in you Orchard address. Whether that will happen depends on multiple factors so it's probably easier to use just the Orchard-only address printed by the signer.
+```admonish danger
+The address being show by Ywallet is a unified address that includes both an
+Orchard and Sapling address. For the demo to work, you need to receive funds in
+your Orchard address. Whether that will happen depends on multiple factors so
+it's probably easier to use just the Orchard-only address printed by the signer.
+In Ywallet, you can also swipe right on the QR Code until it shows the "Orchard
+Address". **IF YOU SEND IT TO THE SAPLING ADDRESS, THE FUNDS WILL BECOME
+UNSPENDABLE AND WILL BE LOST!**
 ```
+
 
 ## Creating the transaction
 
 Now you will create the transaction that you wish to sign with FROST. Click
 the arrow button and paste the destination address (send it to yourself if
 you don't know where to send it). Type the amount you want to send and
-click "Send".
+click the arrow button.
 
-The wallet will show the transaction plan. Click "Send". It won't actually
-send - it will prompt you for where to save the transaction plan. Save it
-somewhere.
+The wallet will show the transaction plan. Click the snowflake button. It will
+show a QR code, but we want that information as a file, so click the floppy disk
+button and save the file somewhere (e.g. `tx-plan.json`).
+
 
 ## Signing the transaction
 
-Go back to the signer terminal and run (adjust paths accordingly. The "tx.json"
-input parameters must point to the file you save in the previous step, and the
-"tx.raw" output parameter is where the signed transaction will be written).
-
-```
-cargo run --release --bin sign --features dotenv -- -t ~/Downloads/tx.json -o ~/Downloads/tx.raw
-```
-
-When prompted, paste the UFVK generated previously.
-
-The program will print a SIGHASH and a Randomizer.
-
 Now you will need to simulate two participants and a Coordinator to sign the
-transaction, and the FROST server that handles communications between them.
-It's probably easier to open four terminals.
+transaction, and you should still have the FROST server running which will
+handle communications between them. It's probably easier to open three new
+terminals.
 
-In the first one, the server, run (in the same folder where key generation was
-run):
-
-```
-RUST_LOG=debug cargo run --bin server --features redpallas --
-```
-
-In the second one, the Coordinator, run (in the same folder where key generation
-was run):
+Go back to the signer terminal and run the following, replacing `<tx_plan_path>`
+with the path to the file you saved in the previous step, `<ufvk>` with the UFVK
+hex string printed previously, and `<tx_signed_path>` with the path where you
+want to write the signed transaction (e.g. `tx-signed.raw`).
 
 ```
-cargo run --bin coordinator --features redpallas -- --http -r -
+zcash-sign sign --tx-plan <tx_plan_path> --ufvk <ufvk> -o <tx_signed_path>
 ```
 
-And then:
-
-- It should read the public key package from `public-key-package.json`.
-- Type `2` for the number of participants.
-- Copy the session ID that is printed.
+The program will print a SIGHASH and a Randomizer, and will prompt for a
+signature. This is what you will get after running FROST, so let's do that;
+leave the prompt there without typing anything.
 
 
-In the third terminal, Participant 1, run the following, replacing
-`<SESSION_ID>` with the session ID you have just copied:
+### Coordinator
 
-```
-cargo run --bin participant --features redpallas -- --cli --key-package key-package-1.json -s <SESSION_ID>
-```
-
-In the fourth terminal, for Participant 2, run the following, again replacing
-the session ID:
+In the second terminal, the Coordinator, run (in the same folder where you
+initialized the users and ran the key generation) the following:
 
 ```
-cargo run --bin participant --features redpallas -- --cli --key-package key-package-2.json -s <SESSION_ID>
+frost-client groups -c alice.toml
 ```
 
-Go back to the Coordinator CLI:
+This will list the groups Alice is in; it should only list the one you created
+earlier. You will need to copy some values in the command. Run the following,
+replacing the value after `<group>` with the "Public key" listed for the group;
+replacing `<pubkey1>` and `<pubkey2>` with the public keys of Alice and Bob (the
+hexadecimal values printed next to their names; Alice's name will be empty to
+indicate it's her own).
 
-- When prompted for the message to be signed, paste the SIGHASH printed by the
-  signer above (just the hex value, e.g.
-  ``4d065453cfa4cfb4f98dbc9cff60c4a3904ed91c523b8ef8d67d28bea7f12ea3``).
-- When prompted for the randomizer, paste the randomizer printed by the signer
-  above (again just the hex value)
+```
+frost-client coordinator -c alice.toml --server-url localhost:2744 --group <group> -S <pubkey1>,<pubkey2> -m - -r -
+```
+
+It will prompt you for a message. Paste the SIGHASH generated with the
+`zcash-sign` tool and press enter. It will then prompt for a randomizer. Paste
+the one generated with the `zcash-sign` tool and press enter.
+
+The tool will connect to the server and wait for the other participants.
 
 ```admonish warning
-If you prefer to pass the randomizer as a file by using the `--randomizer`
-argument, you will need to convert it to binary format.
+If you prefer to pass the message (SIGHASH) or randomizer as files by using
+the `-m` and `-r` arguments, you will need to convert them to binary format.
 ```
 
-The protocol should run and complete succesfully. You should still be at the
-Coordinator CLI. It has just printed the final FROST-generated signature.
-Hurrah! Copy it (just the hex value).
+
+### Participant 1 (Alice)
+
+In the third terminal, Participant 1, run the following (replacing `<group>`
+with the same group public key used in the previous command):
+
+```
+frost-client participant -c alice.toml --server-url localhost:2744 --group <group>
+```
+
+(We are using "Alice" again. There's nothing stopping a Coordinator from being a
+Partcipant too!)
+
+
+### Participant 2 (Bob)
+
+In the fourth terminal, for Participant 2, run the following (replacing `<group>`
+again):
+
+```
+frost-client participant -c bob.toml --server-url localhost:2744 --group <group>
+```
+
+
+### Coordinator
+
+Go back to the Coordinator CLI. The protocol should run and complete
+successfully. It will print the final FROST-generated signature. Hurrah! Copy it
+(just the hex value).
 
 Go back to the signer and paste the signature. It will write the raw signed
 transaction to the file you specified.
 
+
 ## Broadcasting the transaction
 
-Go back to Ywallet and return to its main screen. In the menu, select "Advanced"
-and "Broadcast". Select the raw signed transaction file you have just generated.
+Go back to Ywallet and return to its main screen. In the menu, select "More" and
+"Broadcast". Click the upper-right box-with-an-arrow icon and select the raw
+signed transaction file you have just generated (`tx-signed.raw` if you followed
+the suggestion).
 
 That's it! You just sent a FROST-signed Zcash transaction.

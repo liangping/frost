@@ -6,7 +6,7 @@ Add to your `Cargo.toml` file:
 
 ```
 [dependencies]
-frost-ristretto255 = "2.0.0-rc.0"
+frost-ristretto255 = "2.2.0"
 ```
 
 ## Handling errors
@@ -25,20 +25,20 @@ help with serialization in the following ways:
 ### Default byte-oriented serialization
 
 With the `serialization` feature, which is enabled by default, all structs that
-need to communicated will have `serialize()` and `deserialize()` methods. The
+need to be communicated will have `serialize()` and `deserialize()` methods. The
 serialization format is described in [Serialization
 Format](../user/serialization.md).
 
 ### serde
 
-Alternatively, if you would like to user another format such as JSON, you can
+Alternatively, if you would like to use another format such as JSON, you can
 enable the `serde` feature (which is *not* enabled by default). When it is
 enabled, you can use [serde](https://serde.rs/) to serialize any structure that
 needs to be transmitted. The importing would look like:
 
 ```
 [dependencies]
-frost-ristretto255 = { version = "2.0.0-rc.0", features = ["serde"] }
+frost-ristretto255 = { version = "2.2.0", features = ["serde"] }
 ```
 
 Note that serde usage is optional. Applications can use different encodings, and
