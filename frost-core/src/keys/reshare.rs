@@ -1,5 +1,6 @@
 //! Reshareable Threshold Scheme
 
+use alloc::collections::btree_set::BTreeSet;
 use alloc::collections::BTreeMap;
 
 use crate::keys::KeyPackage;
@@ -7,13 +8,13 @@ use crate::keys::{
     dkg::round1, 
     generate_secret_polynomial, PublicKeyPackage,};
 use crate::{
-    Ciphersuite, CryptoRng, Error, Field, Group, Header, Identifier, RngCore, SigningKey
+    compute_lagrange_coefficient, Ciphersuite, CryptoRng, Error, Field, Group, Header, Identifier, RngCore, SigningKey
 };
 
 use super::{SecretShare, SigningShare};
 
 /// compute signing share for a new participant from an existing key package and old signing key
-pub fn computing_new_participant_subshare<C: Ciphersuite, R: RngCore + CryptoRng>(
+pub fn compute_new_participant_subshare<C: Ciphersuite, R: RngCore + CryptoRng>(
     old_signing_key: &SigningKey<C>, 
     key_package: round1::SecretPackage<C>,
     new_identifier: Identifier<C>,
@@ -29,12 +30,15 @@ pub fn computing_new_participant_subshare<C: Ciphersuite, R: RngCore + CryptoRng
 }
 
 /// aggregate the recovered shares into a new key package and public key package for a new participant
-pub fn aggregate_shares<C: Ciphersuite>(recovered_shares: BTreeMap<Identifier<C>, SecretShare<C>>) -> Result<(KeyPackage<C>, PublicKeyPackage<C>), Error<C>>{
+pub fn aggregate_subshares<C: Ciphersuite>(recovered_shares: BTreeMap<Identifier<C>, SecretShare<C>>, new_identifier: Identifier<C>) -> Result<(KeyPackage<C>, PublicKeyPackage<C>), Error<C>>{
 
     let mut recovered_signing_share = <<C::Group as Group>::Field>::zero();
+
+    let x_set = recovered_shares.keys().map(|id| *id ).collect::<BTreeSet<_>>();
     for (sender, share) in &recovered_shares {
         let _ = share.verify().map_err(|_| Error::InvalidSecretShare { culprit: Some(*sender) })?;
-        recovered_signing_share = recovered_signing_share + share.signing_share.to_scalar();
+        let lamda_i = compute_lagrange_coefficient(&x_set, Some(new_identifier), sender.clone())?;
+        recovered_signing_share = recovered_signing_share + lamda_i * share.signing_share.to_scalar();
     }
 
     let signing_share = SigningShare::new(recovered_signing_share);
