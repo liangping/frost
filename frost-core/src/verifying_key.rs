@@ -70,6 +70,7 @@ where
             Ok(())
         } else {
             Err(Error::InvalidSignature)
+            // Ok(())
         }
     }
 
