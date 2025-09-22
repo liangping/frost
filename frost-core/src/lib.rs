@@ -294,7 +294,7 @@ where
 /// If `x` is None, it uses 0 for it (since Identifiers can't be 0)
 #[cfg_attr(feature = "internals", visibility::make(pub))]
 #[cfg_attr(docsrs, doc(cfg(feature = "internals")))]
-fn compute_lagrange_coefficient<C: Ciphersuite>(
+pub(crate) fn compute_lagrange_coefficient<C: Ciphersuite>(
     x_set: &BTreeSet<Identifier<C>>,
     x: Option<Identifier<C>>,
     x_i: Identifier<C>,

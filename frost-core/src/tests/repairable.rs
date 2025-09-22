@@ -6,6 +6,7 @@ use debugless_unwrap::DebuglessUnwrap;
 use rand_core::{CryptoRng, RngCore};
 use serde_json::Value;
 
+use crate::keys::VerifiableSecretSharingCommitment;
 use crate as frost;
 use crate::{
     compute_lagrange_coefficient,
@@ -26,7 +27,7 @@ pub fn check_rts<C: Ciphersuite, R: RngCore + CryptoRng>(mut rng: R) {
 
     let max_signers = 5;
     let min_signers = 3;
-    let (shares, _pubkeys): (BTreeMap<Identifier<C>, SecretShare<C>>, PublicKeyPackage<C>) =
+    let (mut shares, _pubkeys): (BTreeMap<Identifier<C>, SecretShare<C>>, PublicKeyPackage<C>) =
         frost::keys::generate_with_dealer(
             max_signers,
             min_signers,
@@ -34,6 +35,9 @@ pub fn check_rts<C: Ciphersuite, R: RngCore + CryptoRng>(mut rng: R) {
             &mut rng,
         )
         .unwrap();
+
+    let new_identifier = &Identifier::try_from(6).unwrap();
+    shares.insert(*new_identifier,SecretShare::new(*new_identifier, SigningShare::default(), shares[&Identifier::try_from(1).unwrap()].commitment.clone()));
 
     // Try to recover a share
 
@@ -44,6 +48,7 @@ pub fn check_rts<C: Ciphersuite, R: RngCore + CryptoRng>(mut rng: R) {
     let helper_4 = &shares[&Identifier::try_from(4).unwrap()];
     let helper_5 = &shares[&Identifier::try_from(5).unwrap()];
     let participant = &shares[&Identifier::try_from(2).unwrap()];
+    let participant_2 = &shares[&Identifier::try_from(2).unwrap()];
 
     let helpers: [Identifier<C>; 3] = [
         helper_1.identifier,
@@ -86,8 +91,10 @@ pub fn check_rts<C: Ciphersuite, R: RngCore + CryptoRng>(mut rng: R) {
         &participant.commitment,
     );
 
+    println!("{:?}", participant_recovered_share.signing_share.0.serialize());
+
     // TODO: assert on commitment equality as well once updates have been made to VerifiableSecretSharingCommitment
-    assert!(participant.signing_share() == participant_recovered_share.signing_share())
+    assert!(participant_2.signing_share() == participant_recovered_share.signing_share())
 }
 
 fn generate_scalar_from_byte_string<C: Ciphersuite>(

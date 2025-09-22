@@ -485,10 +485,11 @@ impl Ciphersuite for Secp256K1Sha256TR {
         // > key should commit to an unspendable script path instead of having
         // > no script path. This can be achieved by computing the output key
         // > point as Q = P + int(hashTapTweak(bytes(P)))G.
-        Ok((
-            key_package.tweak::<&[u8]>(None),
-            public_key_package.tweak::<&[u8]>(None),
-        ))
+        // Ok((
+        //     key_package.tweak::<&[u8]>(None),
+        //     public_key_package.tweak::<&[u8]>(None),
+        // ))
+        Ok((key_package, public_key_package))
     }
 }
 

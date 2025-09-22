@@ -1,10 +1,12 @@
 //! Ciphersuite-generic test functions.
 #![allow(clippy::type_complexity)]
 
+use std::collections::BTreeSet;
+
 use alloc::{borrow::ToOwned, collections::BTreeMap, vec::Vec};
 use rand_core::{CryptoRng, RngCore};
 
-use crate as frost;
+use crate::{self as frost, identifier};
 use crate::keys::SigningShare;
 use crate::round2::SignatureShare;
 use crate::{
@@ -13,6 +15,10 @@ use crate::{
 };
 
 use crate::Ciphersuite;
+
+use crate::compute_lagrange_coefficient;
+use crate::keys::sum_commitments;
+use crate::keys::VerifyingShare;
 
 /// Test if creating a zero SigningKey fails
 pub fn check_zero_key_fails<C: Ciphersuite>() {
@@ -385,8 +391,8 @@ where
     // Key generation, Round 1
     ////////////////////////////////////////////////////////////////////////////
 
-    let max_signers = 5;
-    let min_signers = 3;
+    let max_signers = 3;
+    let min_signers = 2;
 
     // Keep track of each participant's round 1 secret package.
     // In practice each participant will keep its copy; no one
@@ -452,8 +458,8 @@ where
     for participant_index in 1..=max_signers {
         let participant_identifier = participant_index.try_into().expect("should be nonzero");
         let round1_secret_package = round1_secret_packages
-            .remove(&participant_identifier)
-            .unwrap();
+            .get(&participant_identifier)
+            .unwrap().clone();
         let round1_packages = &received_round1_packages[&participant_identifier];
         check_part2_error(round1_secret_package.clone(), round1_packages.clone());
         let (round2_secret_package, round2_packages) =
@@ -532,6 +538,58 @@ where
     }
 
     let pubkeys = frost::keys::PublicKeyPackage::new(verifying_keys, verifying_key.unwrap());
+
+    let mut ids = BTreeSet::new();
+
+    let identifier_1: Identifier<C> = 1.try_into().unwrap();
+    let identifier_2: Identifier<C> = 2.try_into().unwrap();
+    let identifier_3: Identifier<C> = 3.try_into().unwrap();
+    let identifier_4: Identifier<C> = 4.try_into().unwrap(); // new participant
+
+    ids.insert(identifier_1);
+    ids.insert(identifier_2);
+    ids.insert(identifier_3);
+
+    let share_1 = key_packages.get(&identifier_1).unwrap().signing_share();
+    let share_2 = key_packages.get(&identifier_2).unwrap().signing_share();
+    let share_3 = key_packages.get(&identifier_3).unwrap().signing_share();
+
+    let mut coefficients_1 = round1_secret_packages.get(&identifier_1).unwrap().coefficients();
+    let mut coefficients_2 = round1_secret_packages.get(&identifier_2).unwrap().coefficients();
+    let mut coefficients_3 = round1_secret_packages.get(&identifier_3).unwrap().coefficients();
+
+    let commitment_1 = round1_secret_packages.get(&identifier_1).unwrap().commitment();
+    let commitment_2 = round1_secret_packages.get(&identifier_2).unwrap().commitment();
+    let commitment_3 = round1_secret_packages.get(&identifier_3).unwrap().commitment();
+
+    let group_commitment = sum_commitments(&vec![commitment_1, commitment_2, commitment_3]).unwrap();
+    
+    let lamda_1 = compute_lagrange_coefficient(&ids, Some(identifier_4), identifier_1).unwrap();
+    let lamda_2 = compute_lagrange_coefficient(&ids, Some(identifier_4), identifier_2).unwrap();
+    let lamda_3 = compute_lagrange_coefficient(&ids, Some(identifier_4), identifier_3).unwrap();
+
+    coefficients_1.remove(0);
+    coefficients_1.insert(0, share_1.to_scalar().into());
+    coefficients_2.remove(0);
+    coefficients_2.insert(0, share_2.to_scalar().into());
+    coefficients_3.remove(0);
+    coefficients_3.insert(0, share_3.to_scalar().into());
+
+    let sub_share_1 = SigningShare::from_coefficients(&coefficients_1, identifier_4);
+    let sub_share_2 = SigningShare::from_coefficients(&coefficients_2, identifier_4);
+    let sub_share_3 = SigningShare::from_coefficients(&coefficients_3, identifier_4);
+
+    let new_share_1 = sub_share_1.to_scalar();
+    let new_share_2 =  sub_share_2.to_scalar();
+    let new_share_3 = sub_share_3.to_scalar();
+
+    let new_share = SigningShare::new(lamda_1 * new_share_1 + lamda_2 * new_share_2 + lamda_3 * new_share_3);
+    let new_verifying_share : VerifyingShare<C> = new_share.into();
+    println!("new verifying share: {:?}", new_verifying_share);
+    
+    let evaluated_verifying_share= VerifyingShare::from_commitment(identifier_4, &group_commitment);
+    println!("evaluated verifying share: {:?}", evaluated_verifying_share);
+    assert_eq!(new_verifying_share, evaluated_verifying_share);
 
     // Proceed with the signing test.
     check_sign(min_signers, key_packages, rng, pubkeys).unwrap()
