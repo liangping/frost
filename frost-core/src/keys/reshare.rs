@@ -17,51 +17,58 @@ pub use super::refresh::*;
 /// compute signing share for a new participant from an existing key package and old signing key
 /// only run on existing participant nodes. 
 pub fn compute_new_participant_subshare<C: Ciphersuite, R: RngCore + CryptoRng>(
-    old_signing_key: &SigningKey<C>, 
+    old_key_package: &KeyPackage<C>, 
+    old_id_set: &BTreeSet<Identifier<C>>,
     min_signers: u16,
     max_signers: u16,
     mut rng: R,
     new_identifier: Identifier<C>,
 ) -> Result<SecretShare<C>, Error<C>> {
 
+    // compute the lagrange coefficient for the old participant
+    // let lamda_i = compute_lagrange_coefficient(&old_id_set, Some(new_identifier), old_key_package.identifier().clone())?;
+    let lamda_i = compute_lagrange_coefficient(&old_id_set, None, old_key_package.identifier().clone())?;
+    let secret = SigningKey::from_scalar(old_key_package.signing_share().to_scalar() * lamda_i)?;
+
+    // generate a new polynomial with free term = secret
     let coefficients = super::generate_coefficients::<C, R>(min_signers as usize - 1, &mut rng);
-    // using the same polynomial generation as in refresh
-    let (coefficients, commitment) =
-        generate_secret_polynomial(&old_signing_key, max_signers, min_signers, coefficients)?;
+    let (coefficients, commitment) = generate_secret_polynomial(&secret, max_signers, min_signers, coefficients)?;
 
-    let signing_share = SigningShare::from_coefficients(&coefficients, new_identifier);
-    let sec_share = SecretShare::new(new_identifier, signing_share, commitment);
+    // evaluate the polynomial at new_identifier to get the new share
+    let restore_share = SigningShare::from_coefficients(&coefficients, new_identifier);
+    let secret_share = SecretShare::new(new_identifier, restore_share, commitment);
 
-    Ok(sec_share)
+    Ok(secret_share)
 }
+
+
 
 /// aggregate the recovered shares into a new key package and public key package for a new participant
 pub fn reconstruct_key_from_subshares<C: Ciphersuite>(helper_shares: BTreeMap<Identifier<C>, SecretShare<C>>, new_identifier: Identifier<C>) -> Result<(KeyPackage<C>, PublicKeyPackage<C>), Error<C>>{
 
     let mut recovered_signing_share = <<C::Group as Group>::Field>::zero();
     // let mut recovered_pubkey =  <<C::Group as Group>::Field>::zero();
-    let mut recovered_pubkey = <C::Group>::generator() - <C::Group>::generator(); // zero element
+    let mut recovered_pubkey = <C::Group>::identity(); // zero element
     let mut verifying_shares = BTreeMap::new();
 
-    let x_set = helper_shares.keys().map(|id| *id ).collect::<BTreeSet<_>>();
+    // let x_set = helper_shares.keys().map(|id| *id ).collect::<BTreeSet<_>>();
     for (sender, share_i) in &helper_shares {
         let _ = share_i.verify().map_err(|_| Error::InvalidSecretShare { culprit: Some(*sender) })?;
-        let lamda_ij = compute_lagrange_coefficient(&x_set, Some(new_identifier), sender.clone())?;
 
-        recovered_signing_share = recovered_signing_share + (share_i.signing_share().to_scalar() * lamda_ij);
-
-        let lamda_i0 = compute_lagrange_coefficient(&x_set, None, sender.clone())?;
+        recovered_signing_share = recovered_signing_share + share_i.signing_share().to_scalar();
 
         let ci0 =  share_i.commitment().0.get(0).ok_or(Error::IncorrectCommitment)?.value();
-        recovered_pubkey =  recovered_pubkey + ci0 * lamda_i0;
-
-        let verifying_share_i = VerifyingShare::new(ci0);
-        verifying_shares.insert(*sender, verifying_share_i);
+        recovered_pubkey =  recovered_pubkey + ci0;
 
     }
 
     let signing_share = SigningShare::new(recovered_signing_share);
     let verifying_share = VerifyingShare::from(signing_share);
+
+    if verifying_share.to_element() != recovered_pubkey {
+        return Err(Error::InvalidSecretShare { culprit: Some(new_identifier.clone()) });
+    }
+
     verifying_shares.insert(new_identifier, verifying_share.clone());
 
     //let commitments = helper_shares.iter().map(|(id, share)| (*id, &share.commitment)).collect::<BTreeMap<_, _>>();
