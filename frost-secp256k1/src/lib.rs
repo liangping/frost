@@ -338,6 +338,7 @@ pub mod keys {
     pub mod dkg;
     pub mod refresh;
     pub mod repairable;
+    pub mod reshare;
 }
 
 /// FROST(secp256k1, SHA-256) Round 1 functionality and types.

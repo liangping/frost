@@ -38,7 +38,7 @@ mod tests {
 
     use crate::keys::reshare::{compute_new_participant_subshare, reconstruct_key_from_subshares, refresh_dkg_part1, refresh_dkg_part2, refresh_dkg_shares};
     use crate::keys::PublicKeyPackage;
-    use crate::{aggregate, round1, round2, Identifier, Secp256K1Sha256TR, SigningPackage};
+    use crate::{aggregate, round1, round2, Identifier, SigningPackage};
 
     #[test]
     fn test_reshare() -> Result<(), crate::Error> {
@@ -274,12 +274,13 @@ mod tests {
             // let participant_identifier = participant_index.try_into().expect("should be nonzero");
             let pubkey_package = refresh_pubkey_packages.get(&to_verify_id).expect("pub key should exist");
 
+
             let signing_package = SigningPackage::new(signing_commitments.clone(), message);
             let signature = aggregate(&signing_package, &signature_shares, pubkey_package)?;
             // let v = pubkey_package.verifying_key().verify(&message, signature);
 
-            // let pubkey_package2 = pubkey_packages.get(&to_verify_id).expect("pub key should exist");
-            assert!(pubkey_package.verifying_key().verify(&message[..], &signature).is_ok(), "signature should verify");
+            let pubkey_package2 = refresh_pubkey_packages.get(&to_verify_id).expect("pub key should exist");
+            assert!(pubkey_package2.verifying_key().verify(&message[..], &signature).is_ok(), "signature should verify");
 
         //}
 
