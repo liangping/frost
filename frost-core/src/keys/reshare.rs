@@ -50,11 +50,12 @@ pub fn reconstruct_key_from_subshares<C: Ciphersuite>(helper_shares: BTreeMap<Id
     let mut recovered_signing_share = <<C::Group as Group>::Field>::zero();
     let mut commitments = vec![];
 
-    // let x_set = helper_shares.keys().map(|id| *id ).collect::<BTreeSet<_>>();
+    let x_set = helper_shares.keys().map(|id| *id ).collect::<BTreeSet<_>>();
     for (sender, share_i) in &helper_shares {
         let _ = share_i.verify().map_err(|_| Error::InvalidSecretShare { culprit: Some(*sender) })?;
 
-        recovered_signing_share = recovered_signing_share + share_i.signing_share().to_scalar();
+        let lamda_i = compute_lagrange_coefficient(&x_set, None, *sender)?;
+        recovered_signing_share = recovered_signing_share + share_i.signing_share().to_scalar(); // * lamda_i;
         commitments.push(share_i.commitment());
 
     }
@@ -70,17 +71,12 @@ pub fn reconstruct_key_from_subshares<C: Ciphersuite>(helper_shares: BTreeMap<Id
         return Err(Error::InvalidSecretShare { culprit: Some(new_identifier.clone()) });
     }
 
+    let secret_share = SecretShare::new(new_identifier, signing_share.clone(), group_commitments.clone());
+
     // let public_key_package = PublicKeyPackage::new(v_shares, partial_public_key_package.verifying_key);
 
-    let key_package = KeyPackage {
-        header: Header::default(),
-        identifier: new_identifier,
-        signing_share: signing_share.clone(),
-        verifying_share,
-        verifying_key: public_key_package.verifying_key,
-        min_signers: (group_commitments.0.len()) as u16,
-    };
+    let key_package = KeyPackage::try_from(secret_share)?;
 
-    Ok((key_package, public_key_package))
-    // <C>::post_dkg(key_package, public_key_package)
+    // Ok((key_package, public_key_package))
+    <C>::post_dkg(key_package, public_key_package)
 }

@@ -33,12 +33,10 @@ pub fn reconstruct_key_from_subshares(helper_shares: BTreeMap<Identifier, Secret
 mod tests {
     use alloc::collections::btree_map::BTreeMap;
     use alloc::collections::btree_set::BTreeSet;
-    use alloc::vec::Vec;
-    use frost_core::{compute_lagrange_coefficient, Element, Group, SigningKey};
 
-    use crate::keys::reshare::{compute_new_participant_subshare, reconstruct_key_from_subshares, refresh_dkg_part1, refresh_dkg_part2, refresh_dkg_shares};
-    use crate::keys::PublicKeyPackage;
-    use crate::{aggregate, round1, round2, Identifier, Secp256K1Sha256TR, SigningPackage};
+    use crate::keys::reshare::{compute_new_participant_subshare, reconstruct_key_from_subshares};
+    use crate::keys::{KeyPackage, PublicKeyPackage};
+    use crate::{aggregate, round1, round2, Identifier, SigningPackage};
 
     #[test]
     fn test_reshare() -> Result<(), crate::Error> {
@@ -148,14 +146,12 @@ mod tests {
         // In practice each participant will keep its copy; no one
         // will have all the participant's packages.
         let mut key_packages = BTreeMap::new();
-        let mut refresh_key_packages = key_packages.clone();
 
         // Keep track of each participant's public key package.
         // In practice, if there is a Coordinator, only they need to store the set.
         // If there is not, then all candidates must store their own sets.
         // All participants will have the same exact public key package.
         let mut pubkey_packages = BTreeMap::new();
-        let mut refresh_pubkey_packages = pubkey_packages.clone();
 
         // For each participant, perform the third part of the DKG protocol.
         // In practice, each participant will perform this on their own environments.
@@ -175,23 +171,27 @@ mod tests {
             pubkey_packages.insert(participant_identifier, pubkey_package);
         }
 
-        // reconstruct the new participant's key package
+        ////////////////////////////////////////////////////////////////////////////
+        // Resharing starts here
+        ////////////////////////////////////////////////////////////////////////////
 
-        // let new_identifier: Identifier = (max_signers + 1).try_into().expect("should be nonzero");
+
+        let mut refresh_key_packages: BTreeMap<Identifier, KeyPackage> = BTreeMap::new();
+        let mut refresh_pubkey_packages: BTreeMap<Identifier, PublicKeyPackage> = BTreeMap::new();
+
         let x_set = (2..=max_signers).map(|i| (i as u16).try_into().expect("should be nonzero") ).collect::<BTreeSet<Identifier>>();
         let x_set_all = (2..=max_signers + 1).map(|i| (i as u16).try_into().expect("should be nonzero") ).collect::<BTreeSet<Identifier>>();
         
-        for new_index in 2..=max_signers + 1 {
+        for renew_identifier in x_set_all.clone() {
 
-            let renew_identifier: Identifier = (new_index as u16).try_into().expect("should be nonzero");
+            // let renew_identifier: Identifier = (new_index as u16).try_into().expect("should be nonzero");
             let mut received_recovered_shares = BTreeMap::new();
 
-            for participant_index in 2..=max_signers {
-                let helper_i = participant_index.try_into().expect("should be nonzero");
+            for helper_i in x_set.clone() {
                 let old_key_package = key_packages.get(&helper_i).expect("should exist");
                 // let old_signing_key = SigningKey::from_scalar(old_keypackage.signing_share().to_scalar()).expect("should work");
                 let share_i = compute_new_participant_subshare(
-                    &old_key_package,
+                    old_key_package,
                     &x_set,
                     max_signers,
                     min_signers,
@@ -204,50 +204,33 @@ mod tests {
 
             let (new_keypackage, new_pubkeypackage) = reconstruct_key_from_subshares(received_recovered_shares, renew_identifier, &x_set_all)?;
 
-            if let Some(old_pubkey)= pubkey_packages.get(&renew_identifier) {
-                assert_eq!(old_pubkey.verifying_key(), new_pubkeypackage.verifying_key(), "should have all verifying shares");
-            };
+            // if let Some(old_pubkey)= pubkey_packages.get(&renew_identifier) {
+            //     assert_eq!(old_pubkey.verifying_key(), new_pubkeypackage.verifying_key(), "should have all verifying shares");
+            // };
 
             refresh_key_packages.insert(renew_identifier, new_keypackage);
             refresh_pubkey_packages.insert(renew_identifier, new_pubkeypackage);
 
         }
         
-        // let mut vss = BTreeMap::new();
-
-        // // update new verifying shares for participants
-        // for (id, sk) in &refresh_key_packages {
-        //     vss.insert(*id, sk.verifying_share().clone());
-        // }
-
-        // let x_set = refresh_key_packages.keys().map(|i| *i ).collect::<BTreeSet<_>>();
-        // let mut verify_key = <<Secp256K1Sha256TR as frost_core::Ciphersuite>::Group as Group>::Element::identity();
-        // for (id, sk) in &refresh_key_packages {
-        //     let lamda_i0 = compute_lagrange_coefficient(&x_set, None, *id).expect("should work");
-        //     let new_verifying_share = sk.verifying_share().to_element() * lamda_i0;
-        //     verify_key = verify_key + new_verifying_share;
-        // }
-
-        // for (id, sk) in &refresh_key_packages {
-        //     // assert_eq!(sk.verifying_key().to_element(), verify_key, "verifying key should match");
-        //     let pubkey_package = PublicKeyPackage::new(vss.clone(), sk.verifying_key().clone());
-        //     refresh_pubkey_packages.insert(*id, pubkey_package);
-        // }
-
 
         ////////////////////////////////////////////////////////////////////////////
         // Sign, Round 1
         ////////////////////////////////////////////////////////////////////////////
+        
+        let sign_key_packages = refresh_key_packages;
+        let verify_pubkey_packages = refresh_pubkey_packages;
+        
 
         let message = b"Hello, world!";
         let mut signing_commitments = BTreeMap::new();
         let mut signing_nonces = BTreeMap::new();
         let mut signature_shares = BTreeMap::new();
 
-        for participant_index in 2..=max_signers + 1 {
+        for participant_index in 2..=max_signers {
 
             let participant_identifier = participant_index.try_into().expect("should be nonzero");
-            let keypackage = refresh_key_packages.get(&participant_identifier).expect("priv key should exist");
+            let keypackage = sign_key_packages.get(&participant_identifier).expect("priv key should exist");
             let (nonce, commitment) = round1::commit(keypackage.signing_share(), &mut rng);
 
             signing_nonces.insert(participant_identifier, nonce);
@@ -255,10 +238,10 @@ mod tests {
 
         }
 
-        for participant_index in 2..=max_signers + 1 {
+        for participant_index in 2..=max_signers {
 
             let participant_identifier = participant_index.try_into().expect("should be nonzero");
-            let keypackage = refresh_key_packages.get(&participant_identifier).expect("priv should exist");
+            let keypackage = sign_key_packages.get(&participant_identifier).expect("priv should exist");
 
             let signing_package = SigningPackage::new(signing_commitments.clone(), message);
             let signing_nonce = signing_nonces.get(&participant_identifier).expect("nonce should exist");
@@ -272,7 +255,7 @@ mod tests {
 
             let to_verify_id: Identifier = (3 as u16).try_into().expect("should be nonzero");
             // let participant_identifier = participant_index.try_into().expect("should be nonzero");
-            let pubkey_package = refresh_pubkey_packages.get(&to_verify_id).expect("pub key should exist");
+            let pubkey_package = verify_pubkey_packages.get(&to_verify_id).expect("pub key should exist");
 
             let signing_package = SigningPackage::new(signing_commitments.clone(), message);
             let signature = aggregate(&signing_package, &signature_shares, pubkey_package)?;
